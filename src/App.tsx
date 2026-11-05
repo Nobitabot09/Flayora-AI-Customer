@@ -7,7 +7,6 @@ const starters=['Show me photo frames','I need a gift for someone special','What
 
 function localReply(input:string,history:Message[]):Message{
   const q=input.toLowerCase().trim()
-  const allUserText=history.filter(m=>m.role==='user').map(m=>m.content.toLowerCase()).join(' ')
   const previousProducts=history.flatMap(m=>m.products||[])
   const selectedId=[...previousProducts].reverse().find(id=>catalogue.some(p=>p.id===id))
   const selected= catalogue.find(p=>p.id===selectedId)
@@ -35,7 +34,6 @@ function localReply(input:string,history:Message[]):Message{
   const recipient=/\b(friend|friends|bestie|best friend|someone i love|loved one|girlfriend|boyfriend|partner|wife|husband|mother|mom|mum|father|dad|parents|family|sister|brother)\b/.test(q)
   const occasion=/\b(birthday|anniversary|wedding|graduation|farewell|thank.?you|surprise|just because|festival)\b/.test(q)
   if(recipient){
-    const who=q.match(/\b(friend|bestie|best friend|someone i love|loved one|girlfriend|boyfriend|partner|wife|husband|mother|mom|mum|father|dad|parents|family|sister|brother)\b/)?.[0]||'someone special'
     return{role:'assistant',content:'That sounds lovely! ❤️ A personalised gift can make it extra meaningful. Is there a particular occasion, like a birthday or anniversary, or is it just a sweet surprise?'}
   }
   if(occasion){
