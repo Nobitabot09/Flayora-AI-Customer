@@ -1,7 +1,62 @@
 import {useState} from 'react'
 import {ArrowUp,Bot,Gift,RotateCcw,Sparkles,ShoppingBag} from 'lucide-react'
 import {catalogue} from './catalogue'
+
 type Message={role:'user'|'assistant';content:string;products?:string[]}
-const starters=['Show me personalised gifts','What can I customise?','How much for 10 photo mugs?','Do you have T-shirt sizes?']
-function reply(input:string):Message{const q=input.toLowerCase();if(q.includes('10')&&(q.includes('mug')||q.includes('mugs')))return{role:'assistant',content:'The demo catalogue lists the Custom Photo Mug at ₹199 each. For 10 mugs, the item total is ₹1,990 (10 × ₹199). This is a demo calculation, not a final quote. Delivery or other charges are not included.',products:['MUG-001']};if(q.includes('t-shirt')||q.includes('tshirt')||q.includes('size'))return{role:'assistant',content:'Our demo Custom Printed T-Shirt lists sizes S, M, L, XL and XXL, with black, blue and red garment options. The price and final print suitability require a quote because fabric and print method affect the cost.',products:['TSH-001']};if(q.includes('gift')||q.includes('under')||q.includes('birthday'))return{role:'assistant',content:'Demo examples: Custom Photo Mug (₹199), Custom Keychain (₹30) and Personalised Photo Frame (₹249). These are sample prices for testing, not verified live Flayora prices.',products:['MUG-001','KEY-001','FRAME-001']};return{role:'assistant',content:'I can help you explore personalised gifts and printing options. Tell me what you have in mind, the quantity or your budget. I’m currently running with a demo catalogue, so I’ll clearly identify sample information.'}}
-export default function App(){const[messages,setMessages]=useState<Message[]>([{role:'assistant',content:'Hey! 👋 Welcome to Flayora. I can help you discover personalised gifts, explore colours and sizes, and calculate sample item totals. What are you looking for today?'}]);const[input,setInput]=useState('');const[busy,setBusy]=useState(false);function send(value=input){const clean=value.trim();if(!clean||busy)return;setMessages(p=>[...p,{role:'user',content:clean}]);setInput('');setBusy(true);window.setTimeout(()=>{setMessages(p=>[...p,reply(clean)]);setBusy(false)},350)}function reset(){setMessages([{role:'assistant',content:'Fresh conversation started! What would you like to discover today?'}]);setInput('')}const products=catalogue.filter(p=>messages.some(m=>m.products?.includes(p.id)));return <main className="shell"><aside className="side"><div className="brand"><div className="brandmark">F</div><div><b>FLAYORA</b><small>AI CUSTOMER ASSISTANT</small></div></div><div className="side-note"><Sparkles size={17}/>Your ideas, personalised.</div><div className="side-bottom"><span className="dot"/> Demo catalogue active</div></aside><section className="workspace"><header className="topbar"><div><div className="eyebrow">YOUR PERSONAL SHOPPING ASSISTANT</div><h1>Let's make it personal.</h1></div><button className="reset" onClick={reset}><RotateCcw size={15}/> New chat</button></header><div className="chat-area"><div className="chat-inner"><div className="welcome"><div className="bot-orb"><Bot size={25}/></div><div><b>Flayora Assistant</b><span><i/> Online · Demo mode</span></div></div><div className="messages">{messages.map((m,i)=><div className={'message-row '+m.role} key={i}>{m.role==='assistant'&&<div className="mini-orb"><Bot size={15}/></div>}<div className="bubble">{m.content}</div></div>)}{busy&&<div className="message-row assistant"><div className="mini-orb"><Bot size={15}/></div><div className="bubble">Thinking ···</div></div>}</div>{products.length>0&&<div className="product-strip">{products.map(p=><article className="product" key={p.id}><div className="product-icon"><Gift size={20}/></div><div><b>{p.name}</b><small>{p.price>0?`₹${p.price} · demo price`:'Quote required'}</small><small>{p.category}</small></div></article>)}</div>}{messages.length===1&&<div className="suggestions"><p>TRY ASKING</p>{starters.map(s=><button key={s} onClick={()=>send(s)}>{s}</button>)}</div>}</div></div><div className="composer-wrap"><form className="composer" onSubmit={e=>{e.preventDefault();send()}}><ShoppingBag size={18}/><input value={input} onChange={e=>setInput(e.target.value)} placeholder="Ask about gifts, colours, sizes or prices..."/><button disabled={!input.trim()||busy} aria-label="Send message"><ArrowUp size={19}/></button></form><p>Demo assistant · Prices and availability are sample data, not live store information.</p></div></section></main>}
+const starters=['Show me photo frames','I need a gift for someone special','What can I customise?','How much is a photo mug?']
+
+export default function App(){
+  const [messages,setMessages]=useState<Message[]>([{role:'assistant',content:"Hey! 👋 Welcome to Flayora! I'm here to help you find a thoughtful gift or explore custom printing. What are you looking for today?"}])
+  const [input,setInput]=useState('')
+  const [busy,setBusy]=useState(false)
+  const [error,setError]=useState('')
+
+  async function send(value=input){
+    const clean=value.trim()
+    if(!clean||busy)return
+    const next=[...messages,{role:'user' as const,content:clean}]
+    setMessages(next)
+    setInput('')
+    setBusy(true)
+    setError('')
+    try{
+      const response=await fetch('/api/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({messages:next.slice(-20).map(({role,content})=>({role,content}))})})
+      const data=await response.json() as {reply?:string;products?:string[];error?:string}
+      if(!response.ok||!data.reply)throw new Error(data.error||'I could not connect right now. Please try again.')
+      setMessages(current=>[...current,{role:'assistant',content:data.reply!,products:Array.isArray(data.products)?data.products:[]}])
+    }catch(e){
+      setError(e instanceof Error?e.message:'Something went wrong. Please try again.')
+    }finally{setBusy(false)}
+  }
+
+  function reset(){
+    setMessages([{role:'assistant',content:"A fresh chat! 😊 Tell me what you're shopping for, and I'll help you find something lovely."}])
+    setInput('')
+    setError('')
+  }
+
+  const productIds=[...new Set(messages.flatMap(m=>m.products||[]))]
+  const products=catalogue.filter(p=>productIds.includes(p.id)&&p.active)
+
+  return <main className="shell">
+    <aside className="side">
+      <div className="brand"><div className="brandmark">F</div><div><b>FLAYORA</b><small>AI CUSTOMER ASSISTANT</small></div></div>
+      <div className="side-note"><Sparkles size={17}/>Your ideas, personalised.</div>
+      <div className="side-bottom"><span className="dot"/> AI shopping assistant</div>
+    </aside>
+    <section className="workspace">
+      <header className="topbar"><div><div className="eyebrow">YOUR PERSONAL SHOPPING ASSISTANT</div><h1>Let's make it personal.</h1></div><button className="reset" onClick={reset}><RotateCcw size={15}/> New chat</button></header>
+      <div className="chat-area"><div className="chat-inner">
+        <div className="welcome"><div className="bot-orb"><Bot size={25}/></div><div><b>Flayora Assistant</b><span><i/> Online · AI powered</span></div></div>
+        <div className="messages">
+          {messages.map((m,i)=><div className={'message-row '+m.role} key={i}>{m.role==='assistant'&&<div className="mini-orb"><Bot size={15}/></div>}<div className="bubble">{m.content}</div></div>)}
+          {busy&&<div className="message-row assistant"><div className="mini-orb"><Bot size={15}/></div><div className="bubble">Thinking···</div></div>}
+        </div>
+        {products.length>0&&<div className="product-strip">{products.map(p=><article className="product" key={p.id}><div className="product-icon"><Gift size={20}/></div><div><b>{p.name}</b><small>{p.price>0?'₹'+p.price+' · sample price':'Quote required'}</small><small>{p.category}</small></div></article>)}</div>}
+        {messages.length===1&&<div className="suggestions"><p>TRY ASKING</p>{starters.map(s=><button key={s} onClick={()=>send(s)}>{s}</button>)}</div>}
+        {error&&<div className="error-note">{error} Your message is still here — tap send to retry.</div>}
+      </div></div>
+      <div className="composer-wrap"><form className="composer" onSubmit={e=>{e.preventDefault();send()}}><ShoppingBag size={18}/><input value={input} onChange={e=>setInput(e.target.value)} placeholder="Ask about gifts, frames, colours, sizes or prices..." disabled={busy}/><button disabled={!input.trim()||busy} aria-label="Send message"><ArrowUp size={19}/></button></form><p>Flayora AI · Product details and prices are based on the current catalogue.</p></div>
+    </section>
+  </main>
+}
