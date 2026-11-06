@@ -21,7 +21,7 @@ interface WorkersAI {
     }
   ): Promise<{ response?: string | { reply?: string; productIds?: string[] }; [key: string]: unknown }>;
 }
-interface Env { AI: WorkersAI }
+interface Env { AI: WorkersAI; FLAYORA_KNOWLEDGE: D1Database }
 interface ChatMessage { role: 'user' | 'assistant'; content: string }
 
 const CATALOGUE = [
@@ -64,10 +64,25 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
     if (!messages.length) return Response.json({ error: 'No valid messages.' }, { status: 400 });
 
+    let approvedKnowledge = '';
+    try {
+      const knowledge = await env.FLAYORA_KNOWLEDGE.prepare(
+        "SELECT title, content, category FROM ai_knowledge WHERE status = 'approved' ORDER BY updated_at DESC LIMIT 40"
+      ).all<{ title: string; content: string; category: string }>();
+      approvedKnowledge = (knowledge.results || []).map(item =>
+        "[" + item.category + "] " + item.title + ": " + item.content
+      ).join("\\n");
+    } catch (knowledgeError) {
+      console.error('Knowledge retrieval failed', knowledgeError);
+    }
+    const systemPrompt = SYSTEM + (approvedKnowledge
+      ? "\\n\\nOWNER-APPROVED FLAYORA KNOWLEDGE (use this as the current business reference; if it conflicts with generic assumptions, prefer this approved information):\\n" + approvedKnowledge
+      : "");
+
     const allowedProductIds = CATALOGUE.filter(p => p.active).map(p => p.id);
     const result = await env.AI.run('@cf/meta/llama-3.1-8b-instruct-fast', {
       messages: [
-        { role: 'system', content: SYSTEM },
+        { role: 'system', content: systemPrompt },
         ...messages.map(m => ({ role: m.role, content: m.content }))
       ],
       max_tokens: 450,
