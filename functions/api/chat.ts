@@ -29,8 +29,15 @@ export const onRequestPost:PagesFunction<Env>=async({request,env})=>{
   const productIds=CATALOGUE.filter(p=>p.active).map(p=>p.id)
   const schema={type:'OBJECT',properties:{reply:{type:'STRING'},productIds:{type:'ARRAY',items:{type:'STRING',enum:productIds}}},required:['reply','productIds'],propertyOrdering:['reply','productIds']}
   const model=env.GEMINI_MODEL||'gemini-3.8-flash'
-  const response=await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+encodeURIComponent(model)+':generateContent',{method:'POST',headers:{'Content-Type':'application/json','x-goog-api-key':env.GEMINI_API_KEY},body:JSON.stringify({systemInstruction:{parts:[{text:SYSTEM}]},contents,generationConfig:{responseMimeType:'application/json',responseSchema:schema,maxOutputTokens:600}})})
-  if(!response.ok){const detail=await response.text();console.error('Gemini API error',response.status,detail.slice(0,1000));let message='Unknown Gemini API error';try{const parsed=JSON.parse(detail) as {error?:{message?:string;status?:string}};message=parsed.error?.message||parsed.error?.status||message}catch{}return Response.json({error:'Gemini API error ('+response.status+'): '+message},{status:502})}
+  const endpoint='https://generativelanguage.googleapis.com/v1beta/models/'+encodeURIComponent(model)+':generateContent'
+  const payload=JSON.stringify({systemInstruction:{parts:[{text:SYSTEM}]},contents,generationConfig:{responseMimeType:'application/json',responseSchema:schema,maxOutputTokens:600}})
+  let response:Response|undefined
+  for(let attempt=0;attempt<4;attempt++){
+   response=await fetch(endpoint,{method:'POST',headers:{'Content-Type':'application/json','x-goog-api-key':env.GEMINI_API_KEY},body:payload})
+   if(response.ok||![408,429,500,502,503,504].includes(response.status)||attempt===3)break
+   await new Promise(resolve=>setTimeout(resolve,800*Math.pow(2,attempt)))
+  }
+  if(!response||!response.ok){const status=response?.status||502;const detail=response?await response.text():'';console.error('Gemini API error after retries',status,detail.slice(0,1000));let message='Unknown Gemini API error';try{const parsed=JSON.parse(detail) as {error?:{message?:string;status?:string}};message=parsed.error?.message||parsed.error?.status||message}catch{}const userMessage=status===503?'Gemini is temporarily busy. Please try again in a moment.':status===429?'Gemini request limit reached. Please try again shortly.':'Gemini API error ('+status+'): '+message;return Response.json({error:userMessage,code:status},{status:502})}
   const result=await response.json() as {candidates?:{content?:{parts?:{text?:string}[]}}[]}
   const raw=result.candidates?.[0]?.content?.parts?.map(p=>p.text||'').join('')
   if(!raw)return Response.json({error:'Gemini returned an empty reply. Please try again.'},{status:502})
