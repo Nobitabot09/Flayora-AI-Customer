@@ -1,5 +1,5 @@
 export type Product={id:string;name:string;category:string;description:string;price:number;currency:'INR';colours:string[];sizes:string[];shapes:string[];personalisation:string[];active:boolean;availability:'demo-available'|'quote-required'|'unknown';storeCode:string;storeUrl:string}
-const STORE='https://flayora-development.pages.dev'
+const STORE='https://growth-sales-funnel-b2b.flayora-development.pages.dev'
 export const catalogue:Product[]=[
 {id:'MUG-001',name:'Custom Photo Mug',category:'Drinkware',description:'Personalised ceramic mug for photos, names or short messages.',price:199,currency:'INR',colours:['White'],sizes:['Standard'],shapes:['Classic cylinder'],personalisation:['Photo','Name','Text'],active:true,availability:'demo-available',storeCode:'FL-106',storeUrl:STORE+'/?product=FL-106'},
 {id:'KEY-001',name:'Custom Keychain',category:'Accessories',description:'Personalised keychain suitable for names, logos or small photos.',price:30,currency:'INR',colours:['Multiple options — confirm before order'],sizes:['Standard'],shapes:['Multiple shapes — confirm before order'],personalisation:['Name','Logo','Photo'],active:true,availability:'demo-available',storeCode:'FL-109',storeUrl:STORE+'/?product=FL-109'},
