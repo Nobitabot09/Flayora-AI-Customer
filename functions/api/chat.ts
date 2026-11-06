@@ -19,7 +19,7 @@ interface WorkersAI {
         };
       };
     }
-  ): Promise<{ response?: string; [key: string]: unknown }>;
+  ): Promise<{ response?: string | { reply?: string; productIds?: string[] }; [key: string]: unknown }>;
 }
 interface Env { AI: WorkersAI }
 interface ChatMessage { role: 'user' | 'assistant'; content: string }
@@ -79,18 +79,17 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       }
     });
 
-    const raw = typeof result.response === 'string' ? result.response : '';
-    if (!raw) {
-      console.error('Workers AI returned no response text', result);
+    if (!result.response) {
+      console.error('Workers AI returned no response', result);
       return Response.json({ error: 'The AI returned an empty reply. Please try again.' }, { status: 502 });
     }
 
     let parsed: { reply?: string; productIds?: string[] };
-    try {
-      parsed = JSON.parse(raw);
-    } catch {
-      const cleaned = raw.replace(/^```(?:json)?\\s*/i, '').replace(/\\s*```$/, '').trim();
+    if (typeof result.response === 'string') {
+      const cleaned = result.response.replace(/^```(?:json)?\\s*/i, '').replace(/\\s*```$/, '').trim();
       parsed = JSON.parse(cleaned);
+    } else {
+      parsed = result.response;
     }
 
     const allowed = new Set(allowedProductIds);
