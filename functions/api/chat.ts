@@ -30,12 +30,12 @@ export const onRequestPost:PagesFunction<Env>=async({request,env})=>{
   const schema={type:'OBJECT',properties:{reply:{type:'STRING'},productIds:{type:'ARRAY',items:{type:'STRING',enum:productIds}}},required:['reply','productIds'],propertyOrdering:['reply','productIds']}
   const model=env.GEMINI_MODEL||'gemini-3.8-flash'
   const response=await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+encodeURIComponent(model)+':generateContent',{method:'POST',headers:{'Content-Type':'application/json','x-goog-api-key':env.GEMINI_API_KEY},body:JSON.stringify({systemInstruction:{parts:[{text:SYSTEM}]},contents,generationConfig:{responseMimeType:'application/json',responseSchema:schema,maxOutputTokens:600}})})
-  if(!response.ok){const detail=await response.text();console.error('Gemini API error',response.status,detail.slice(0,500));return Response.json({error:'Gemini could not answer right now. Please try again shortly.'},{status:502})}
+  if(!response.ok){const detail=await response.text();console.error('Gemini API error',response.status,detail.slice(0,1000));let message='Unknown Gemini API error';try{const parsed=JSON.parse(detail) as {error?:{message?:string;status?:string}};message=parsed.error?.message||parsed.error?.status||message}catch{}return Response.json({error:'Gemini API error ('+response.status+'): '+message},{status:502})}
   const result=await response.json() as {candidates?:{content?:{parts?:{text?:string}[]}}[]}
   const raw=result.candidates?.[0]?.content?.parts?.map(p=>p.text||'').join('')
   if(!raw)return Response.json({error:'Gemini returned an empty reply. Please try again.'},{status:502})
   const parsed=JSON.parse(raw) as {reply?:string;productIds?:string[]}
   const allowed=new Set(productIds)
   return Response.json({reply:typeof parsed.reply==='string'?parsed.reply:'Hey! What can I help you find today?',products:Array.isArray(parsed.productIds)?parsed.productIds.filter(id=>allowed.has(id)):[]})
- }catch{return Response.json({error:'Something went wrong while preparing the reply.'},{status:400})}
+ }catch(error){console.error('Flayora chat handler error',error);return Response.json({error:'Chat handler error: '+(error instanceof Error?error.message:'Unknown error')},{status:500})}
 }
