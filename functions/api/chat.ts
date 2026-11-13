@@ -66,7 +66,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     if (!messages.length) return Response.json({ error: 'No valid messages.' }, { status: 400 });
 
     const allowedProductIds = CATALOGUE.filter(p => p.active).map(p => p.id);
-    const result = await env.AI.run('@cf/meta/llama-3.1-8b-instruct-fast', {
+    const inference = env.AI.run('@cf/meta/llama-3.1-8b-instruct-fast', {
       messages: [
         { role: 'system', content: SYSTEM },
         ...messages.map(m => ({ role: m.role, content: m.content }))
@@ -86,6 +86,8 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
         }
       }
     });
+    const timeout = new Promise<never>((_, reject) => setTimeout(() => reject(new Error('AI inference timed out after 40 seconds.')), 40000));
+    const result = await Promise.race([inference, timeout]);
 
     if (!result.response) {
       console.error('Workers AI returned no response', result);
