@@ -24,3 +24,5 @@
 .library-delete-full{width:100%;border:1px solid #e6b6b6;background:#fff7f7;color:#a52d2d;border-radius:9px;padding:9px;font-size:10px;cursor:pointer}.training-form{display:grid;gap:10px;background:#fff;border:1px solid #e3e8ef;border-radius:13px;padding:16px;margin:18px 0}
 .training-form h3{margin:0;font-size:13px;display:flex;align-items:center;gap:8px}.training-form p{font-size:10px;color:#7b8798;line-height:1.5;margin:0}.training-form label{display:grid;gap:5px;font-size:10px;font-weight:600;color:#536176}.training-form textarea,.training-form select{width:100%;border:1px solid #dfe5ed;border-radius:8px;padding:9px;font:11px Inter,system-ui,sans-serif;color:#25334a;background:#fff}
 @media(max-width:760px){.chat-library-grid{grid-template-columns:1fr}.chat-library{padding:13px}}
+
+.evaluation-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:9px}.evaluation-case{background:#fff;border:1px solid #e3e8ef;border-radius:11px;padding:12px}.evaluation-case p{font-size:11px;line-height:1.5;color:#344156}.evaluation-case small{font-size:10px;line-height:1.5;color:#7b8798}
