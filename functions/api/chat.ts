@@ -21,7 +21,7 @@ interface WorkersAI {
     }
   ): Promise<{ response?: string | { reply?: string; productIds?: string[] }; [key: string]: unknown }>;
 }
-interface Env { AI: WorkersAI; CHAT_LIBRARY?: D1Database }
+interface Env { AI: WorkersAI; CHAT_LIBRARY?: D1Database; FLAYORA_KNOWLEDGE?: D1Database }
 interface ChatMessage { role: 'user' | 'assistant'; content: string }
 
 const CATALOGUE = [
@@ -65,10 +65,41 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
     if (!messages.length) return Response.json({ error: 'No valid messages.' }, { status: 400 });
 
+    let businessKnowledge = '';
+    if (env.FLAYORA_KNOWLEDGE) {
+      try {
+        const knowledge = await env.FLAYORA_KNOWLEDGE.prepare(
+          "SELECT title, content, category FROM ai_knowledge WHERE status = 'approved' ORDER BY updated_at DESC LIMIT 20"
+        ).all<{title:string;content:string;category:string}>();
+        businessKnowledge = (knowledge.results || []).map(item =>
+          "[" + item.category + "] " + item.title + ": " + item.content.slice(0,1200)
+        ).join("\\n").slice(0,14000);
+      } catch (error) {
+        console.error('Approved business knowledge retrieval failed', error);
+      }
+    }
+    let trainingGuidance = '';
+    if (env.CHAT_LIBRARY) {
+      try {
+        const examples = await env.CHAT_LIBRARY.prepare(
+          "SELECT category, scenario, expected_response, expected_behaviour FROM ai_training_examples WHERE status = 'approved' ORDER BY updated_at DESC LIMIT 12"
+        ).all<{category:string;scenario:string;expected_response:string;expected_behaviour:string}>();
+        trainingGuidance = (examples.results || []).map((item,index) =>
+          "Scenario " + (index + 1) + " (" + item.category + "): " + item.scenario.slice(0,700) +
+          "\\nPreferred response: " + item.expected_response.slice(0,900) +
+          (item.expected_behaviour ? "\\nExpected behaviour: " + item.expected_behaviour.slice(0,500) : "")
+        ).join("\\n\\n").slice(0,12000);
+      } catch (error) {
+        console.error('Approved scenario retrieval failed', error);
+      }
+    }
+    const systemPrompt = SYSTEM +
+      (businessKnowledge ? "\\n\\nOWNER-APPROVED BUSINESS KNOWLEDGE:\\n" + businessKnowledge : "") +
+      (trainingGuidance ? "\\n\\nOWNER-APPROVED BEHAVIOURAL EXAMPLES (follow their principles; do not copy personal data):\\n" + trainingGuidance : "");
     const allowedProductIds = CATALOGUE.filter(p => p.active).map(p => p.id);
     const inference = env.AI.run('@cf/meta/llama-3.1-8b-instruct-fast', {
       messages: [
-        { role: 'system', content: SYSTEM },
+        { role: 'system', content: systemPrompt },
         ...messages.map(m => ({ role: m.role, content: m.content }))
       ],
       max_tokens: 450,
