@@ -38,3 +38,8 @@ body.flayora-embed{min-width:0;overflow:hidden;background:#f5f7fb}
  .flayora-embed .chat-area{padding:13px 10px}
  .flayora-embed .welcome{margin-bottom:14px}
 }
+
+.chat-retention{max-width:790px;margin:0 auto 9px;display:flex;align-items:flex-start;gap:8px;color:#788397;font-size:10px;line-height:1.45;cursor:pointer}
+.chat-retention input{margin:2px 0 0;accent-color:#17263d;flex:none}
+.chat-retention b{color:#4b596e}
+.flayora-embed .chat-retention{font-size:9px;margin-bottom:7px}
