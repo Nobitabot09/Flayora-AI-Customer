@@ -4,3 +4,8 @@ pages_build_output_dir = "./dist"
 
 [ai]
 binding = "AI"
+
+[[d1_databases]]
+binding = "CHAT_LIBRARY"
+database_name = "flayora-ai-chat-library"
+database_id = "1e34bd9f-1151-46d6-be20-cf3e81399d14"
