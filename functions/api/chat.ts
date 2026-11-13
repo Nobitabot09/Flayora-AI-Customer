@@ -144,6 +144,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       if (/^[0-9a-f-]{36}$/i.test(sessionId) && /^[0-9a-f-]{36}$/i.test(turnId) && lastUserMessage) {
         const now = new Date();
         const createdAt = now.toISOString();
+        const assistantCreatedAt = new Date(now.getTime() + 1).toISOString();
         const expiresAt = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000).toISOString();
         try {
           await env.CHAT_LIBRARY.batch([
@@ -155,7 +156,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
             ).bind(turnId + "-u",sessionId,lastUserMessage.content,createdAt),
             env.CHAT_LIBRARY.prepare(
               "INSERT OR IGNORE INTO chat_messages (id,conversation_id,role,content,created_at) VALUES (?,?, 'assistant', ?,?)"
-            ).bind(turnId + "-a",sessionId,reply,createdAt),
+            ).bind(turnId + "-a",sessionId,reply,assistantCreatedAt),
             env.CHAT_LIBRARY.prepare(
               "UPDATE chat_conversations SET message_count=(SELECT COUNT(*) FROM chat_messages WHERE conversation_id=?) WHERE id=?"
             ).bind(sessionId,sessionId)
