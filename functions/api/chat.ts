@@ -21,7 +21,7 @@ interface WorkersAI {
     }
   ): Promise<{ response?: string | { reply?: string; productIds?: string[] }; [key: string]: unknown }>;
 }
-interface Env { AI: WorkersAI }
+interface Env { AI: WorkersAI; CHAT_LIBRARY?: D1Database }
 interface ChatMessage { role: 'user' | 'assistant'; content: string }
 
 const CATALOGUE = [
@@ -54,7 +54,7 @@ const SYSTEM = [
 
 export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   try {
-    const body = await request.json() as { messages?: ChatMessage[] };
+    const body = await request.json() as { messages?: ChatMessage[]; sessionId?: string; turnId?: string; saveChat?: boolean };
     if (!Array.isArray(body.messages) || body.messages.length === 0 || body.messages.length > 30) {
       return Response.json({ error: 'Invalid conversation.' }, { status: 400 });
     }
@@ -103,10 +103,39 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     }
 
     const allowed = new Set(allowedProductIds);
+    const reply = typeof parsed.reply === 'string' && parsed.reply.trim()
+      ? parsed.reply.trim()
+      : 'Hey! What can I help you find today?';
+    if (body.saveChat === true && env.CHAT_LIBRARY) {
+      const sessionId = typeof body.sessionId === 'string' ? body.sessionId : '';
+      const turnId = typeof body.turnId === 'string' ? body.turnId : '';
+      const lastUserMessage = [...messages].reverse().find(m => m.role === 'user');
+      if (/^[0-9a-f-]{36}$/i.test(sessionId) && /^[0-9a-f-]{36}$/i.test(turnId) && lastUserMessage) {
+        const now = new Date();
+        const createdAt = now.toISOString();
+        const expiresAt = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000).toISOString();
+        try {
+          await env.CHAT_LIBRARY.batch([
+            env.CHAT_LIBRARY.prepare(
+              "INSERT INTO chat_conversations (id,started_at,last_activity_at,expires_at,source,consent_version,message_count) VALUES (?,?,?,?, 'website-ai','chat-retention-v1',2) ON CONFLICT(id) DO UPDATE SET last_activity_at=excluded.last_activity_at, expires_at=excluded.expires_at"
+            ).bind(sessionId,createdAt,createdAt,expiresAt),
+            env.CHAT_LIBRARY.prepare(
+              "INSERT OR IGNORE INTO chat_messages (id,conversation_id,role,content,created_at) VALUES (?,?, 'user', ?,?)"
+            ).bind(turnId + "-u",sessionId,lastUserMessage.content,createdAt),
+            env.CHAT_LIBRARY.prepare(
+              "INSERT OR IGNORE INTO chat_messages (id,conversation_id,role,content,created_at) VALUES (?,?, 'assistant', ?,?)"
+            ).bind(turnId + "-a",sessionId,reply,createdAt),
+            env.CHAT_LIBRARY.prepare(
+              "UPDATE chat_conversations SET message_count=(SELECT COUNT(*) FROM chat_messages WHERE conversation_id=?) WHERE id=?"
+            ).bind(sessionId,sessionId)
+          ]);
+        } catch (archiveError) {
+          console.error('Chat archive save failed; customer reply will still be delivered', archiveError);
+        }
+      }
+    }
     return Response.json({
-      reply: typeof parsed.reply === 'string' && parsed.reply.trim()
-        ? parsed.reply.trim()
-        : 'Hey! What can I help you find today?',
+      reply,
       products: Array.isArray(parsed.productIds)
         ? parsed.productIds.filter(id => allowed.has(id))
         : []
