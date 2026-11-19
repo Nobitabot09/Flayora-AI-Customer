@@ -84,17 +84,32 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
         console.error('Approved business knowledge retrieval failed', error);
       }
     }
+    // Match approved examples to the current customer enquiry instead of injecting
+    // whichever 12 records were most recently edited.
     let trainingGuidance = '';
     if (env.CHAT_LIBRARY) {
       try {
         const examples = await env.CHAT_LIBRARY.prepare(
-          "SELECT category, scenario, expected_response, expected_behaviour FROM ai_training_examples WHERE status = 'approved' ORDER BY updated_at DESC LIMIT 12"
+          "SELECT category, scenario, expected_response, expected_behaviour FROM ai_training_examples WHERE status = 'approved' ORDER BY updated_at DESC LIMIT 500"
         ).all<{category:string;scenario:string;expected_response:string;expected_behaviour:string}>();
-        trainingGuidance = (examples.results || []).map((item,index) =>
-          "Scenario " + (index + 1) + " (" + item.category + "): " + item.scenario.slice(0,700) +
-          "\\nPreferred response: " + item.expected_response.slice(0,900) +
-          (item.expected_behaviour ? "\\nExpected behaviour: " + item.expected_behaviour.slice(0,500) : "")
-        ).join("\\n\\n").slice(0,12000);
+        const stopWords = new Set(['the','and','for','with','this','that','from','have','want','need','what','when','where','would','could','please','about','your','you','are','can','how','our','its','they','their','will','into','also','there','some','just','hello','hi']);
+        const tokens = (s:string) => new Set((s.toLowerCase().match(/[a-z0-9₹]+/g) || [])
+          .filter(w => w.length > 2 && !stopWords.has(w)).slice(0,80));
+        const latest = messages[messages.length - 1].content;
+        const queryTokens = tokens(latest);
+        const ranked = (examples.results || []).map((item,index) => {
+          const scenarioTokens = tokens(item.scenario + ' ' + item.category.replace(/_/g,' '));
+          let score = 0;
+          for (const token of queryTokens) if (scenarioTokens.has(token)) score += token.length > 5 ? 2 : 1;
+          return {item, score, index};
+        }).sort((a,b) => b.score - a.score || a.index - b.index);
+        // A small number of focused examples reduces irrelevant prompt text and neuron use.
+        const selected = ranked.filter(x => x.score > 0).slice(0,4);
+        trainingGuidance = selected.map((entry,index) =>
+          "Scenario " + (index + 1) + " (" + entry.item.category + "): " + entry.item.scenario.slice(0,500) +
+          "\\nPreferred response: " + entry.item.expected_response.slice(0,650) +
+          (entry.item.expected_behaviour ? "\\nExpected behaviour: " + entry.item.expected_behaviour.slice(0,350) : "")
+        ).join("\\n\\n").slice(0,6500);
       } catch (error) {
         console.error('Approved scenario retrieval failed', error);
       }
