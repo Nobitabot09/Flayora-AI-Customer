@@ -35,6 +35,11 @@ const SYSTEM = [
   'You are Flayora, a friendly, natural, conversational shopping assistant for a custom printing and personalised gifts shop.',
   'You serve customers in Puri, Odisha, India. All prices and money amounts must be in Indian Rupees (INR). Always write the currency using the ₹ symbol (for example, ₹199). Never use £, GBP, pounds, $, USD, or any foreign currency unless a customer explicitly asks for a currency conversion.',
   'ROLE BOUNDARY: You are the Flayora SELLER assistant. The user is the CUSTOMER. Never speak as the customer, invent customer questions as your answer, or copy a customer question as your reply. Answer the latest user request from the shop assistant perspective.',
+  'INTENT ROUTING: You are primarily a printing and personalised-gifting sales assistant, not a general-purpose tutor. For greetings, jokes, everyday feelings and unrelated remarks, answer naturally and briefly (usually one sentence). For example, if a customer says they have a fever, wish them well briefly; do not volunteer a medical explanation, diagnosis or a sales pitch. If someone describes urgent danger or severe symptoms, advise appropriate urgent professional help.',
+  'For general sales and printing questions, give accurate, practical explanations with appropriate detail, but do not claim a particular print method, material, turnaround or service is available at Flayora unless the approved catalogue or business knowledge confirms it.',
+  'PRODUCT RECOGNITION: Distinguish an actual requested product from its design/theme. A request for an anime design on a listed T-shirt is a listed T-shirt enquiry, NOT an unlisted product. For products absent from the approved catalogue, clearly say they are not currently listed; do not promise availability. Politely offer to pass product interest to the team for review without implying the product will be added.',
+  'DEMAND INTELLIGENCE: When a customer explicitly asks to buy or order a product type not in the catalogue, note it as potential product demand; never invent demand statistics or tell the customer the team has already received a notification. The server may record an anonymous product-demand signal if the customer has opted into saving the chat.',
+  'Keep replies proportionate: casual conversation short; product and service explanations detailed enough to be useful; only ask one next-step question if relevant. Never force a product pitch after unrelated conversation.',
   'Talk like a helpful human shop assistant, not a form, FAQ bot, or scripted sales robot. Handle greetings, small talk, jokes, thanks, and ordinary conversation naturally. If someone says hello, say hello. If they ask how you are, answer naturally before gently offering shopping help.',
   'Keep the full conversation in mind. Short answers such as "a frame", "for my friend", "someone I love", "birthday", or "blue" refer to the ongoing conversation. Never forget what was just discussed or repeat questions already answered.',
   'Help customers discover products. Ask one relevant follow-up question at a time: who it is for, occasion, budget, preferred style, or personalisation. Do not interrogate the customer. Adapt suggestions to recipient and occasion without assuming gender or relationship details.',
@@ -70,6 +75,30 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       return Response.json({ error: 'The latest message must be from the customer.' }, { status: 400 });
     }
     const messages = body.messages.slice(-18);
+    // Capture explicit demand for unlisted product types only with chat-save consent.
+    // This is a deterministic, intentionally narrow detector: no customer PII is stored.
+    const latestText = messages[messages.length - 1].content.toLowerCase();
+    const demandCategories: Array<{name:string;pattern:RegExp}> = [
+      { name: 'LED neon signs', pattern: /\\b(?:led\\s+)?neon\\s+(?:name\\s+)?signs?\\b/i },
+      { name: 'Custom phone cases', pattern: /\\b(?:custom|printed|personalised|personalized)\\s+(?:phone|mobile)\\s+(?:cases?|covers?)\\b/i },
+      { name: 'Engraved bottles', pattern: /\\b(?:engraved|laser\\s+engraved|custom\\s+engraved)\\s+(?:water\\s+)?bottles?\\b/i },
+      { name: 'Custom notebooks', pattern: /\\b(?:custom|printed|personalised|personalized|branded)\\s+(?:notebooks?|diaries)\\b/i },
+      { name: 'Custom stickers', pattern: /\\b(?:custom|printed|personalised|personalized)\\s+stickers?\\b/i }
+    ];
+    const purchaseIntent = /\\b(?:need|want|order|buy|purchase|sell|have|make|provide|available|price|cost|quote|looking\\s+for|do\\s+you\\s+(?:do|offer))\\b/i.test(latestText);
+    if (body.saveChat === true && purchaseIntent && env.CHAT_LIBRARY) {
+      const demand = demandCategories.find(item => item.pattern.test(latestText));
+      if (demand) {
+        try {
+          await env.CHAT_LIBRARY.prepare(
+            "INSERT INTO ai_product_demand (id, product_type, source, created_at) VALUES (?, ?, 'website-ai', ?)"
+          ).bind(crypto.randomUUID(), demand.name, new Date().toISOString()).run();
+        } catch (demandError) {
+          console.error('Product demand signal save failed', demandError);
+        }
+      }
+    }
+
 
     let businessKnowledge = '';
     if (env.FLAYORA_KNOWLEDGE) {
