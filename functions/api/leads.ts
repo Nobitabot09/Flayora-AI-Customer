@@ -16,11 +16,14 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   if (typeof body.website === "string" && body.website.trim()) return json({ ok: true });
   const name = typeof body.name === "string" ? body.name.trim().slice(0, 80) : "";
   const phone = typeof body.phone === "string" ? body.phone.replace(/[\\s()-]/g, "").slice(0, 16) : "";
+  const email = typeof body.email === "string" ? body.email.trim().slice(0, 254) : "";
+  const address = typeof body.address === "string" ? body.address.trim().slice(0, 500) : "";
   const product = typeof body.product === "string" ? body.product.trim().slice(0, 120) : "";
   const requirements = typeof body.requirements === "string" ? body.requirements.trim().slice(0, 3000) : "";
   const consent = body.consent === true;
   if (name.length < 2) return json({ error: "Please enter your name." }, 400);
   if (!/^\\+?[0-9]{10,15}$/.test(phone)) return json({ error: "Please enter a valid phone number with country code if needed." }, 400);
+  if (email && !/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email)) return json({ error: "Please enter a valid email address or leave it blank." }, 400);
   if (product.length < 2 || requirements.length < 8) return json({ error: "Please add the product and a few details about what you need." }, 400);
   if (!consent) return json({ error: "Please confirm that Flayora may contact you about this enquiry." }, 400);
   try {
@@ -30,8 +33,8 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     if ((recent?.total || 0) >= 2) return json({ error: "We already received a recent enquiry from this number. Please wait a few minutes before submitting again." }, 429);
     const id = crypto.randomUUID();
     await env.FLAYORA_LEADS.prepare(
-      "INSERT INTO ai_leads (id, created_at, customer_name, phone, product, requirements, preferred_contact, status, source) VALUES (?, ?, ?, ?, ?, ?, ?, 'new', 'website-ai')"
-    ).bind(id, new Date().toISOString(), name, phone, product, requirements, "WhatsApp").run();
+      "INSERT INTO ai_leads (id, created_at, customer_name, phone, product, requirements, preferred_contact, status, source, email, address) VALUES (?, ?, ?, ?, ?, ?, ?, 'new', 'website-ai', ?, ?)"
+    ).bind(id, new Date().toISOString(), name, phone, product, requirements, "WhatsApp", email || null, address || null).run();
     return json({ ok: true, reference: id.slice(0, 8).toUpperCase(), message: "Your enquiry has been received. The Flayora team can follow up with you." }, 201);
   } catch (error) {
     console.error("AI lead save failed", error);
