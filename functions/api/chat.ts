@@ -40,7 +40,20 @@ function mentionsJersey(input: string): boolean {
   return /\\bjersey\\b/i.test(normaliseProductLanguage(input));
 }
 
+// Catalogue-grounded intent mapping. A related item is not proof of stock.
+const PRODUCT_ALIASES: Array<{id:string;terms:RegExp[]}> = [
+  {id:'TSH-001',terms:[/\\b(?:t[ -]?shirts?|tees?|jerseys?|jersys?|jercys?|jercues|jerscys?|jerceys?|sports\\s+shirts?)\\b/i]},
+  {id:'MUG-001',terms:[/\\b(?:mugs?|coffee\\s+cups?|photo\\s+cups?)\\b/i]},
+  {id:'KEY-001',terms:[/\\b(?:key\\s*chains?|keyrings?|key\\s*rings?)\\b/i]},
+  {id:'FRAME-001',terms:[/\\b(?:photo\\s*frames?|picture\\s*frames?|frames?)\\b/i]}
+];
+function productMatches(text:string):string[] {
+  return PRODUCT_ALIASES.filter(p=>p.terms.some(pattern=>pattern.test(text))).map(p=>p.id);
+}
+
 const SYSTEM = [
+  'CATALOGUE GROUNDING: The backend provides the most relevant approved catalogue matches for the conversation. Treat them as facts, not as proof that a different related product is available. Use the customer\'s latest explicit product choice over earlier ones. If a customer names a specific product and it is unlisted, do not force an unrelated product card. A sports jersey is related to a listed T-shirt but is not identical to a listed jersey.',
+
   'PRODUCT LANGUAGE AND SPELLING: Understand informal phonetic misspellings. Jersey, jersy, jercy, jercues, jerscy and similar spellings refer to a sports jersey or shirt, NOT a keychain. A jersey is apparel and related to T-shirts, but a specific sports jersey is NOT confirmed as an offered catalogue product. If asked for a jersey, explain we list custom printed T-shirts and can ask the team whether jersey-style fabric/design is possible; do not falsely claim jerseys are stocked. Never suggest a keychain, mug or photo frame as a substitute for a jersey. When no relevant product exists, return no product cards rather than random products.',
 
   'You are Flayora, a friendly, natural, conversational shopping assistant for a custom printing and personalised gifts shop.',
@@ -100,6 +113,16 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     const jerseyRequest = mentionsJersey(lastCustomerText);
     // Add a corrected interpretation without modifying the customer's original text.
     const normalizedLatest = normaliseProductLanguage(lastCustomerText);
+    const latestProductMatches = productMatches(lastCustomerText);
+    // Preserve product context on follow-ups only when the customer does not name a new product.
+    const previousCustomerProduct = [...messages.slice(0,-1)].reverse()
+      .filter(m=>m.role==='user').map(m=>productMatches(m.content)).find(ids=>ids.length>0) || [];
+    const relevantProductIds = latestProductMatches.length ? latestProductMatches : previousCustomerProduct;
+    const productContext = relevantProductIds.map(id=>CATALOGUE.find(p=>p.id===id)).filter(Boolean);
+    const productGrounding = productContext.length
+      ? 'CATALOGUE MATCHES FOR THIS CONVERSATION (facts only; do not infer that related but unlisted items are sold): ' + JSON.stringify(productContext)
+      : 'No reliable catalogue product match was detected. Do not suggest a random product.';
+
     const modelMessages = messages.map((m, index) => ({
       role: m.role,
       content: index === messages.length - 1 && normalizedLatest !== lastCustomerText
@@ -175,7 +198,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
         console.error('Approved scenario retrieval failed', error);
       }
     }
-    const systemPrompt = SYSTEM +
+    const systemPrompt = SYSTEM + '\\n\\n' + productGrounding +
       (businessKnowledge ? "\\n\\nOWNER-APPROVED BUSINESS KNOWLEDGE:\\n" + businessKnowledge : "") +
       (trainingGuidance ? "\\n\\nOWNER-APPROVED BEHAVIOURAL EXAMPLES (follow their principles; do not copy personal data):\\n" + trainingGuidance : "");
     const allowedProductIds = CATALOGUE.filter(p => p.active).map(p => p.id);
@@ -259,7 +282,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     return Response.json({
       reply,
       products: Array.isArray(parsed.productIds)
-        ? parsed.productIds.filter(id => allowed.has(id) && (!jerseyRequest || id === 'TSH-001'))
+        ? parsed.productIds.filter(id => allowed.has(id) && (!jerseyRequest || id === 'TSH-001') && (relevantProductIds.length === 0 || relevantProductIds.includes(id)))
         : []
     });
   } catch (error) {
