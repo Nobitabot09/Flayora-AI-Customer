@@ -31,7 +31,18 @@ const CATALOGUE = [
   { id: 'FRAME-001', name: 'Personalised Photo Frame', category: 'Photo Gifts', description: 'A personalised photo frame for birthdays and special occasions.', price: 249, colours: ['Confirm options'], sizes: ['Confirm dimensions'], personalisation: ['Photo', 'Name', 'Message'], active: true, availability: 'sample price only; confirm before quoting' }
 ];
 
+// Normalise common customer spelling variations before intent classification.
+function normaliseProductLanguage(input: string): string {
+  return input.replace(/\\b(jerseys?|jerceys?|jercys?|jercues|jersys?|jerscys?|jersceys?|jersies)\\b/gi, 'jersey')
+    .replace(/\\b(tee\\s*shirts?|tshirts?|t\\s*shirts?)\\b/gi, 't-shirt');
+}
+function mentionsJersey(input: string): boolean {
+  return /\\bjersey\\b/i.test(normaliseProductLanguage(input));
+}
+
 const SYSTEM = [
+  'PRODUCT LANGUAGE AND SPELLING: Understand informal phonetic misspellings. Jersey, jersy, jercy, jercues, jerscy and similar spellings refer to a sports jersey or shirt, NOT a keychain. A jersey is apparel and related to T-shirts, but a specific sports jersey is NOT confirmed as an offered catalogue product. If asked for a jersey, explain we list custom printed T-shirts and can ask the team whether jersey-style fabric/design is possible; do not falsely claim jerseys are stocked. Never suggest a keychain, mug or photo frame as a substitute for a jersey. When no relevant product exists, return no product cards rather than random products.',
+
   'You are Flayora, a friendly, natural, conversational shopping assistant for a custom printing and personalised gifts shop.',
   'You serve customers in Puri, Odisha, India. All prices and money amounts must be in Indian Rupees (INR). Always write the currency using the ₹ symbol (for example, ₹199). Never use £, GBP, pounds, $, USD, or any foreign currency unless a customer explicitly asks for a currency conversion.',
   'ROLE BOUNDARY: You are the Flayora SELLER assistant. The user is the CUSTOMER. Never speak as the customer, invent customer questions as your answer, or copy a customer question as your reply. Answer the latest user request from the shop assistant perspective.',
@@ -85,6 +96,17 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       return Response.json({ error: 'The latest message must be from the customer.' }, { status: 400 });
     }
     const messages = body.messages.slice(-30);
+    const lastCustomerText = messages[messages.length - 1].content;
+    const jerseyRequest = mentionsJersey(lastCustomerText);
+    // Add a corrected interpretation without modifying the customer's original text.
+    const normalizedLatest = normaliseProductLanguage(lastCustomerText);
+    const modelMessages = messages.map((m, index) => ({
+      role: m.role,
+      content: index === messages.length - 1 && normalizedLatest !== lastCustomerText
+        ? m.content + "\\n[Spelling interpretation for assistant: jersey = sports shirt/apparel, not keychain. Specific jersey availability is unconfirmed.]"
+        : m.content
+    }));
+
     // Capture explicit demand for unlisted product types only with chat-save consent.
     // This is a deterministic, intentionally narrow detector: no customer PII is stored.
     const latestText = messages[messages.length - 1].content.toLowerCase();
@@ -134,7 +156,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
         const stopWords = new Set(['the','and','for','with','this','that','from','have','want','need','what','when','where','would','could','please','about','your','you','are','can','how','our','its','they','their','will','into','also','there','some','just','hello','hi']);
         const tokens = (s:string) => new Set((s.toLowerCase().match(/[a-z0-9₹]+/g) || [])
           .filter(w => w.length > 2 && !stopWords.has(w)).slice(0,80));
-        const latest = messages[messages.length - 1].content;
+        const latest = normalizedLatest;
         const queryTokens = tokens(latest);
         const ranked = (examples.results || []).map((item,index) => {
           const scenarioTokens = tokens(item.scenario + ' ' + item.category.replace(/_/g,' '));
@@ -160,7 +182,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     const inference = env.AI.run('@cf/meta/llama-3.1-8b-instruct-fast', {
       messages: [
         { role: 'system', content: systemPrompt },
-        ...messages.map(m => ({ role: m.role, content: m.content }))
+        ...modelMessages
       ],
       max_tokens: 450,
       temperature: 0.55,
@@ -194,9 +216,17 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     }
 
     const allowed = new Set(allowedProductIds);
-    const reply = typeof parsed.reply === 'string' && parsed.reply.trim()
+    let reply = typeof parsed.reply === 'string' && parsed.reply.trim()
       ? parsed.reply.trim()
       : 'Hey! What can I help you find today?';
+    // A jersey is related to apparel, but we cannot claim that specific item is listed.
+    // Guard against unrelated product suggestions even if the model ignores the prompt.
+    if (jerseyRequest) {
+      const unrelated = /\\bkey\\s*chains?|mugs?|photo\\s*frames?\\b/i;
+      if (unrelated.test(reply) || /(?:don't|do not|not)\\s+(?:currently\\s+)?(?:list|have|offer)\\s+(?:that|jerseys?)/i.test(reply)) {
+        reply = "Ah, you mean a jersey! 😄 That's apparel, so it's closer to our custom printed T-shirts. We don't have a specific jersey listed, but the team can check whether a jersey-style design and fabric would be possible. Is it for a sports team or a personal design?";
+      }
+    }
     if (body.saveChat === true && env.CHAT_LIBRARY) {
       const sessionId = typeof body.sessionId === 'string' ? body.sessionId : '';
       const turnId = typeof body.turnId === 'string' ? body.turnId : '';
@@ -229,7 +259,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     return Response.json({
       reply,
       products: Array.isArray(parsed.productIds)
-        ? parsed.productIds.filter(id => allowed.has(id))
+        ? parsed.productIds.filter(id => allowed.has(id) && (!jerseyRequest || id === 'TSH-001'))
         : []
     });
   } catch (error) {
