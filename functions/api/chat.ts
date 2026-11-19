@@ -28,6 +28,7 @@ const CATALOGUE = [
   { id: 'MUG-001', name: 'Custom Photo Mug', category: 'Drinkware', description: 'Personalised ceramic mug for photos, names or short messages.', price: 199, colours: ['White'], sizes: ['Standard'], personalisation: ['Photo', 'Name', 'Text'], active: true, availability: 'sample price only; confirm before quoting' },
   { id: 'KEY-001', name: 'Custom Keychain', category: 'Accessories', description: 'Personalised keychain suitable for names, logos or small photos.', price: 30, colours: ['Multiple options — confirm before order'], sizes: ['Standard'], personalisation: ['Name', 'Logo', 'Photo'], active: true, availability: 'sample price only; confirm before quoting' },
   { id: 'TSH-001', name: 'Custom Printed T-Shirt', category: 'Apparel', description: 'Custom printed T-shirt. Print method and garment compatibility depend on fabric and colour.', price: null, colours: ['Black', 'Blue', 'Red'], sizes: ['S', 'M', 'L', 'XL', 'XXL'], personalisation: ['Front print', 'Back print', 'Custom artwork'], active: true, availability: 'quote required' },
+  { id: 'JER-001', name: 'Sports Jersey', category: 'Sports Apparel', description: 'Sports jerseys offered by Flayora. Exact fabric, sizing, design, printing options and availability require team confirmation.', price: null, colours: ['Confirm options'], sizes: ['Confirm sizing'], personalisation: ['Confirm design options'], active: true, availability: 'quote required' },
   { id: 'FRAME-001', name: 'Personalised Photo Frame', category: 'Photo Gifts', description: 'A personalised photo frame for birthdays and special occasions.', price: 249, colours: ['Confirm options'], sizes: ['Confirm dimensions'], personalisation: ['Photo', 'Name', 'Message'], active: true, availability: 'sample price only; confirm before quoting' }
 ];
 
@@ -42,7 +43,8 @@ function mentionsJersey(input: string): boolean {
 
 // Catalogue-grounded intent mapping. A related item is not proof of stock.
 const PRODUCT_ALIASES: Array<{id:string;terms:RegExp[]}> = [
-  {id:'TSH-001',terms:[/\\b(?:t[ -]?shirts?|tees?|jerseys?|jersys?|jercys?|jercues|jerscys?|jerceys?|sports\\s+shirts?)\\b/i]},
+  {id:'JER-001',terms:[/\\b(?:jerseys?|jersys?|jercys?|jercues|jerscys?|jerceys?|sports\\s+shirts?)\\b/i]},
+  {id:'TSH-001',terms:[/\\b(?:t[ -]?shirts?|tees?)\\b/i]},
   {id:'MUG-001',terms:[/\\b(?:mugs?|coffee\\s+cups?|photo\\s+cups?)\\b/i]},
   {id:'KEY-001',terms:[/\\b(?:key\\s*chains?|keyrings?|key\\s*rings?)\\b/i]},
   {id:'FRAME-001',terms:[/\\b(?:photo\\s*frames?|picture\\s*frames?|frames?)\\b/i]}
@@ -52,9 +54,9 @@ function productMatches(text:string):string[] {
 }
 
 const SYSTEM = [
-  'CATALOGUE GROUNDING: The backend provides the most relevant approved catalogue matches for the conversation. Treat them as facts, not as proof that a different related product is available. Use the customer\'s latest explicit product choice over earlier ones. If a customer names a specific product and it is unlisted, do not force an unrelated product card. A sports jersey is related to a listed T-shirt but is not identical to a listed jersey.',
+  'CATALOGUE GROUNDING: The backend provides the most relevant approved catalogue matches for the conversation. Treat them as facts, not as proof that a different related product is available. Use the customer\'s latest explicit product choice over earlier ones. If a customer names a specific product and it is unlisted, do not force an unrelated product card. Sports jerseys are an explicitly offered Flayora product; never substitute T-shirts or keychains for them.',
 
-  'PRODUCT LANGUAGE AND SPELLING: Understand informal phonetic misspellings. Jersey, jersy, jercy, jercues, jerscy and similar spellings refer to a sports jersey or shirt, NOT a keychain. A jersey is apparel and related to T-shirts, but a specific sports jersey is NOT confirmed as an offered catalogue product. If asked for a jersey, explain we list custom printed T-shirts and can ask the team whether jersey-style fabric/design is possible; do not falsely claim jerseys are stocked. Never suggest a keychain, mug or photo frame as a substitute for a jersey. When no relevant product exists, return no product cards rather than random products.',
+  'PRODUCT LANGUAGE AND SPELLING: Jersey, jersy, jercy, jercues, jerscy and similar spellings mean sports jersey. Flayora DOES offer sports jerseys (JER-001). Do not claim they are unavailable or replace them with a T-shirt, keychain, mug or frame. Price, exact sizes, fabric, customisation and stock require team confirmation.',
 
   'You are Flayora, a friendly, natural, conversational shopping assistant for a custom printing and personalised gifts shop.',
   'You serve customers in Puri, Odisha, India. All prices and money amounts must be in Indian Rupees (INR). Always write the currency using the ₹ symbol (for example, ₹199). Never use £, GBP, pounds, $, USD, or any foreign currency unless a customer explicitly asks for a currency conversion.',
@@ -126,7 +128,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     const modelMessages = messages.map((m, index) => ({
       role: m.role,
       content: index === messages.length - 1 && normalizedLatest !== lastCustomerText
-        ? m.content + "\\n[Spelling interpretation for assistant: jersey = sports shirt/apparel, not keychain. Specific jersey availability is unconfirmed.]"
+        ? m.content + "\\n[Spelling interpretation for assistant: jersey = sports shirt/apparel, not keychain. Flayora offers sports jerseys; specific specifications and pricing need team confirmation.]"
         : m.content
     }));
 
@@ -242,13 +244,9 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     let reply = typeof parsed.reply === 'string' && parsed.reply.trim()
       ? parsed.reply.trim()
       : 'Hey! What can I help you find today?';
-    // A jersey is related to apparel, but we cannot claim that specific item is listed.
-    // Guard against unrelated product suggestions even if the model ignores the prompt.
-    if (jerseyRequest) {
-      const unrelated = /\\bkey\\s*chains?|mugs?|photo\\s*frames?\\b/i;
-      if (unrelated.test(reply) || /(?:don't|do not|not)\\s+(?:currently\\s+)?(?:list|have|offer)\\s+(?:that|jerseys?)/i.test(reply)) {
-        reply = "Ah, you mean a jersey! 😄 That's apparel, so it's closer to our custom printed T-shirts. We don't have a specific jersey listed, but the team can check whether a jersey-style design and fabric would be possible. Is it for a sports team or a personal design?";
-      }
+    // Prevent an unrelated or unavailable response to a recognised jersey request.
+    if (jerseyRequest && /\\b(?:not\\s+(?:currently\\s+)?(?:listed|available)|don't\\s+(?:list|sell|have)|do\\s+not\\s+(?:list|sell|have)|key\\s*chains?|mugs?|photo\\s*frames?)\\b/i.test(reply)) {
+      reply = "Ohh, you mean a sports jersey! 😄 Yes, Flayora offers those. The exact fabric, sizes, design options and price need confirmation. Is it for a team or a personal design?";
     }
     if (body.saveChat === true && env.CHAT_LIBRARY) {
       const sessionId = typeof body.sessionId === 'string' ? body.sessionId : '';
@@ -282,7 +280,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     return Response.json({
       reply,
       products: Array.isArray(parsed.productIds)
-        ? parsed.productIds.filter(id => allowed.has(id) && (!jerseyRequest || id === 'TSH-001') && (relevantProductIds.length === 0 || relevantProductIds.includes(id)))
+        ? parsed.productIds.filter(id => id !== 'JER-001' && allowed.has(id) && (!jerseyRequest || id === 'JER-001') && (relevantProductIds.length === 0 || relevantProductIds.includes(id)))
         : []
     });
   } catch (error) {
