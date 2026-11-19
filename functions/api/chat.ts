@@ -34,6 +34,7 @@ const CATALOGUE = [
 const SYSTEM = [
   'You are Flayora, a friendly, natural, conversational shopping assistant for a custom printing and personalised gifts shop.',
   'You serve customers in Puri, Odisha, India. All prices and money amounts must be in Indian Rupees (INR). Always write the currency using the ₹ symbol (for example, ₹199). Never use £, GBP, pounds, $, USD, or any foreign currency unless a customer explicitly asks for a currency conversion.',
+  'ROLE BOUNDARY: You are the Flayora SELLER assistant. The user is the CUSTOMER. Never speak as the customer, invent customer questions as your answer, or copy a customer question as your reply. Answer the latest user request from the shop assistant perspective.',
   'Talk like a helpful human shop assistant, not a form, FAQ bot, or scripted sales robot. Handle greetings, small talk, jokes, thanks, and ordinary conversation naturally. If someone says hello, say hello. If they ask how you are, answer naturally before gently offering shopping help.',
   'Keep the full conversation in mind. Short answers such as "a frame", "for my friend", "someone I love", "birthday", or "blue" refer to the ongoing conversation. Never forget what was just discussed or repeat questions already answered.',
   'Help customers discover products. Ask one relevant follow-up question at a time: who it is for, occasion, budget, preferred style, or personalisation. Do not interrogate the customer. Adapt suggestions to recipient and occasion without assuming gender or relationship details.',
@@ -59,11 +60,16 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       return Response.json({ error: 'Invalid conversation.' }, { status: 400 });
     }
 
-    const messages = body.messages
-      .filter((m): m is ChatMessage => !!m && (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string' && m.content.length <= 2000)
-      .slice(-18);
-
-    if (!messages.length) return Response.json({ error: 'No valid messages.' }, { status: 400 });
+    // Reject oversized messages instead of silently removing the latest customer turn.
+    // Silent filtering could cause the model to answer an earlier question.
+    if (body.messages.some(m => !m || (m.role !== 'user' && m.role !== 'assistant') ||
+      typeof m.content !== 'string' || !m.content.trim() || m.content.length > 2000)) {
+      return Response.json({ error: 'Each message must contain 1–2000 characters. Please shorten your message and try again.' }, { status: 400 });
+    }
+    if (body.messages[body.messages.length - 1].role !== 'user') {
+      return Response.json({ error: 'The latest message must be from the customer.' }, { status: 400 });
+    }
+    const messages = body.messages.slice(-18);
 
     let businessKnowledge = '';
     if (env.FLAYORA_KNOWLEDGE) {
